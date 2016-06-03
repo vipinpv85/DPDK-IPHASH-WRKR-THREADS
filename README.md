@@ -3,7 +3,7 @@ Spread the incoming flow to worker threads using simple hash buckets built from 
 
 Main Functions:
  a. lcore_testCuckoohash - recieves traffic from Ports, does basic validation and stats updates. Lookups up for HASH entry, if found send to FIFO pipe with a sequentally added TX port as metadata.
- b. lcore_fifoProcess - user thread to process the pkt as required. Once successfull transmit the kt through TX port.
+ b. lcore_fifoProcess - user thread to process the pkt as required. Once successfull; create multiple pkts with same payload (zero copy) and transmit the pkt through TX ports.
  
 Purpose: to have simple frame work for multi port traffic processing. Can be used glue layer for work distribution.
 
