@@ -10,7 +10,7 @@ Purpose: to have simple frame work for multi port traffic processing. Can be use
 options: 
  a. r : sets number of RX ports
  b. f : sets number of worker threds
- c. 4/5/all : choose whehter IPv4, IPv6 or both has to be processed
+ c. 4/6/all : choose whehter IPv4, IPv6 or both has to be processed
  
  note: currently implemeted for IPv4 only
  
