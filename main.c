@@ -23,10 +23,24 @@
 
 #include <rte_jhash.h>
 
-#define TEST_TX 1
+#define TEST_TX 0
 
 /* custom pkt template */
+const char pktarpreq[64] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x0c, 0x29, 0x34, 0x0b, 0xde, 0x80, 0x35, 0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x03, 0x00, 0x0c, 0x29, 0x34, 0x0b, 0xde, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x29, 0x34, 0x0b, 0xde, 0x00, 0x00, 0x00, 0x00};
+
+const char pktarprep[64] = {0x00, 0x0c, 0x29, 0x34, 0x0b, 0xde, 0x00, 0x0c, 0x29, 0xc5, 0xf6, 0x9b, 0x80, 0x35, 0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x04, 0x00, 0x0c, 0x29, 0xc5, 0xf6, 0x9b, 0x0a, 0x01, 0x01, 0x0a, 0x00, 0x0c, 0x29, 0x34, 0x0b, 0xde, 0x0a, 0x01, 0x01, 0x64};
+
 const char pkt[1600] = {0x00, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00, 0x45, 0x00, 0x00, 0x7c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11, 0x67, 0xbb, 0xc0, 0xa8, 0x28, 0xb3, 0xc0, 0xa8, 0x28, 0xb2, 0x08, 0x68, 0x08, 0x68, 0x00, 0x68, 0xbf, 0x64, 0x32, 0xff, 0x00, 0x58, 0x00, 0x00, 0x00, 0x01, 0x28, 0xdb, 0x00, 0x00, 0x45, 0x00, 0x00, 0x54, 0x00, 0x00, 0x40, 0x00, 0x40, 0x01, 0x5e, 0xa5, 0xca, 0x0b, 0x28, 0x9e, 0xc0, 0xa8, 0x28, 0xb2, 0x08, 0x00, 0xbe, 0xe7, 0x00, 0x00, 0x28, 0x7b, 0x04, 0x11, 0x20, 0x4b, 0xf4, 0x3d, 0x0d, 0x00, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37};
+
+const char pktTx[MAX_INTFCOUNT][14] = {
+                                        {0x00, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00},
+                                        {0x01, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00},
+                                        {0x02, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00},
+                                        {0x03, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00},
+                                        {0x04, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00},
+                                        {0x05, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00},
+                                        {0x06, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00},
+                                      };
 
 /*default port configuration*/
 static const struct rte_eth_conf port_conf_default = {
@@ -173,8 +187,7 @@ port_init(uint8_t port)
  * Initializes a given port using global settings and with the RX buffers
  * coming from the mbuf_pool passed as a parameter.
  */
-static inline int
-port_status ()
+static inline int port_status ()
 {
     int8_t port, ports = rte_eth_dev_count();
     struct ether_addr addr;
@@ -207,7 +220,7 @@ port_status ()
  * the FIFO queue and process the pkts for transmit ports.
  */
 static int
-lcore_fifoProcess (void *arg)
+lcore_fifoTransmit (void *arg)
 {
     uint8_t fifoIndex = *((uint8_t *) arg);
     uint16_t nb_tx = 0;
@@ -215,13 +228,44 @@ lcore_fifoProcess (void *arg)
     int32_t ret = 0, i = 0, j = 0;
     uint32_t socketId = rte_lcore_to_socket_id(rte_lcore_id());
 
+    char mempoolName[32] = {0};
+
     struct rte_mbuf *ptr[8] = {NULL}, *m = NULL;
+    struct rte_mbuf *hdr[MAX_INTFCOUNT] = {NULL};
+    struct rte_mempool *mbuff_Hdrpool = NULL;
 
     struct ether_hdr *ethHdr = NULL;
     struct ipv4_hdr  *ipHdr  = NULL;
 
     printf("\n INFO: %s FIFO: %d on socket %d lcore %d", \
             __func__, fifoIndex, socketId, rte_lcore_id());
+
+    /*
+     * approach 1: creates a clone of the input packet, walk though all segments of the input packet and for each of segment, 
+                   create a new buffer and attach that new buffer to the segment. A new buffer is then allocated for the packet 
+                   header and is prepended to the cloned buffer.
+     * approach 2: does not make a clone, it just increments the reference counter for all input packet segment, allocates a 
+                   new buffer for the packet header and prepends it to the input packet.
+     */
+
+    /* create the mbuff pool for new pkt header*/
+    sprintf(mempoolName, "mbufhdrpool");
+    mbuff_Hdrpool = rte_mempool_create(mempoolName, NUM_MBUFS,
+                                    MBUF_CACHE_SIZE, 0,
+                                    RTE_MBUF_DEFAULT_BUF_SIZE, 
+                                    rte_pktmbuf_pool_init, NULL,
+                                    rte_pktmbuf_init, NULL,
+                                    0/*SOCKET_ID_ANY*/,
+                                    0/*MEMPOOL_F_SP_PUT | MEMPOOL_F_SC_GET*/);
+    if (unlikely(mbuff_Hdrpool == NULL)) {
+        rte_panic("\n ERROR: failed to get mem-pool for fifo %d\n", fifoIndex);
+        return -1;
+    }
+
+    /*
+     * The first approach reuses only the input packet’s data, but creates its own copy of packet’s metadata. 
+     * The second approach reuses both input packet’s data and metadata : zero-copy buffer cloning
+     */
 
     /*fetch tx port*/
     uint8_t port = 0;
@@ -238,7 +282,54 @@ lcore_fifoProcess (void *arg)
           m = ptr[i];
           txport = (ptr[i]->udata64 & 0xff00)>>8;
 
-          if (txport < rxPorts) {
+#if 1 /**/
+        /* Remove the Ethernet header from the input packet */
+        ipHdr = (struct ipv4_hdr *)rte_pktmbuf_adj(m, sizeof(struct ether_hdr));
+        RTE_MBUF_ASSERT(ipHdr != NULL);
+
+        /*alloc new mbuf for the header*/
+        for (i = 0; i < txport; i++) 
+        {
+          hdr[i] = rte_pktmbuf_alloc(mbuff_Hdrpool);
+	  if (unlikely(hdr[i] == NULL)) {
+	    /*ToDo: update stats for (txportCount - i)*/
+	    return -2;
+	  }
+          
+          /* prepend new header */
+	  hdr[i]->next = m;
+	
+	  /* update header's fields */
+	  hdr[i]->pkt_len = (uint16_t)(hdr[i]->data_len + m->pkt_len);
+	  hdr[i]->nb_segs = (uint8_t)(m->nb_segs + 1);
+	
+	  /* copy metadata from source packet */
+	  hdr[i]->port           = m->port;
+          hdr[i]->vlan_tci       = m->vlan_tci;
+          hdr[i]->vlan_tci_outer = m->vlan_tci_outer;
+          hdr[i]->hash           = m->hash;
+          hdr[i]->ol_flags       = m->ol_flags;
+
+          rte_mbuf_sanity_check(hdr[i], 1);
+
+          /*add custom header ethernet + ip in hdr[i]*/
+          ethHdr = rte_pktmbuf_mtod(hdr[i], struct ether_hdr *);
+          rte_memcpy((void *)ethHdr, (void *)pktTx[i + rxPorts], 14);
+
+          /*transmit pkts to tx ports*/ 
+          nb_tx = rte_eth_tx_burst(rxPorts + i, 0, &hdr[i], 1);
+          if (nb_tx != 1) {
+            prtPktStats[port + rxPorts].queue_drp[fifoIndex] += 1;
+            rte_pktmbuf_free(hdr[i]);
+          }
+
+        }
+
+        /*since we use approach 2, I think we should free the original packet*/
+        rte_pktmbuf_free(m);
+#else
+
+          if (unlikely(txport < rxPorts)) {
             rte_exit(EXIT_FAILURE, "txport %d is invalid!!", txport);
           }
 
@@ -247,6 +338,7 @@ lcore_fifoProcess (void *arg)
             prtPktStats[port + rxPorts].queue_drp[fifoIndex] += 1;
             rte_pktmbuf_free(m);
           }
+#endif
         }
       }
     }  
@@ -353,13 +445,53 @@ lcore_testCuckoohash(void *arg)
               continue;
           }
 
-          ptr[i]->data_len = ptr[i]->pkt_len = 120;
+          /* memcpy pkt content */
           ethHdr = rte_pktmbuf_mtod(ptr[i], struct ether_hdr *);
 
-          /* memcpy pkt content */
+#if 0
+          /*dummy pkt*/
+          ptr[i]->data_len = ptr[i]->pkt_len = 120;
           rte_memcpy(((char *)ethHdr), pkt,ptr[i]->pkt_len);
+          /*arp-req pkt*/
+          rte_memcpy(((char *)ethHdr), pktarpreq,ptr[i]->pkt_len);
+#endif
+          ptr[i]->data_len = ptr[i]->pkt_len = 64;
+          /*arp-rep pkt*/
+          rte_memcpy(((char *)ethHdr), pktarpreq,ptr[i]->pkt_len);
       }
       //rte_pktmbuf_dump (stdout, ptr[0], 64);
+
+      ethHdr = rte_pktmbuf_mtod(ptr[0], struct ether_hdr *);
+      struct arp_hdr *arpHdr = (struct arp_hdr *) ((char *) ethHdr + 14);
+
+      printf("\n ETH-ARP DETAILS \n");
+      printf("ETHER");
+      printf(" - dst: %2x:%2x:%2x:%2x:%2x:%2x", 
+                                               ethHdr->d_addr.addr_bytes[0], ethHdr->d_addr.addr_bytes[1], 
+                                               ethHdr->d_addr.addr_bytes[2], ethHdr->d_addr.addr_bytes[3], 
+                                               ethHdr->d_addr.addr_bytes[4], ethHdr->d_addr.addr_bytes[5]);
+      printf(" - src: %2x:%2x:%2x:%2x:%2x:%2x",
+                                               ethHdr->s_addr.addr_bytes[0], ethHdr->s_addr.addr_bytes[1], 
+                                               ethHdr->s_addr.addr_bytes[2], ethHdr->s_addr.addr_bytes[3], 
+                                               ethHdr->s_addr.addr_bytes[4], ethHdr->s_addr.addr_bytes[5]);
+      printf(" - type: %x", ethHdr->ether_type);
+      printf("ARP");
+      printf(" - arp_hrd: %u", arpHdr->arp_hrd);
+      printf(" - arp_pro: %u", arpHdr->arp_pro);
+      printf(" - arp_hln: %u", arpHdr->arp_hln);
+      printf(" - arp_pln: %u", arpHdr->arp_pln);
+      printf(" - arp_op: %u", arpHdr->arp_op);
+      printf(" - arp_data.arp_sha: %2x:%2x:%2x:%2x:%2x:%2x", 
+                                                           arpHdr->arp_data.arp_sha.addr_bytes[0], arpHdr->arp_data.arp_sha.addr_bytes[1],
+                                                           arpHdr->arp_data.arp_sha.addr_bytes[2], arpHdr->arp_data.arp_sha.addr_bytes[3],
+                                                           arpHdr->arp_data.arp_sha.addr_bytes[4], arpHdr->arp_data.arp_sha.addr_bytes[5]);
+      printf(" - arp_data.arp_sip: %u", arpHdr->arp_data.arp_sip);
+      printf(" - arp_data.arp_tha: %2x:%2x:%2x:%2x:%2x:%2x", 
+                                                           arpHdr->arp_data.arp_tha.addr_bytes[0], arpHdr->arp_data.arp_tha.addr_bytes[1], 
+                                                           arpHdr->arp_data.arp_tha.addr_bytes[2], arpHdr->arp_data.arp_tha.addr_bytes[3], 
+                                                           arpHdr->arp_data.arp_tha.addr_bytes[4], arpHdr->arp_data.arp_tha.addr_bytes[5]);
+      printf(" - arp_data.arp_tip: %u", arpHdr->arp_data.arp_tip);
+
 
       ret = rte_eth_tx_burst(txport, 0, (struct rte_mbuf **)&ptr, 8);
       if (unlikely(8 != ret )) {
@@ -784,7 +916,7 @@ main(int argc, char *argv[])
      */
     for (portid = 0; portid < fifoWrk; portid++) {
         argPort = portid;
-        ret = rte_eal_remote_launch(lcore_fifoProcess, (void *) &argPort, wlcore);
+        ret = rte_eal_remote_launch(lcore_fifoTransmit, (void *) &argPort, wlcore);
         if (ret != 0)
           rte_exit(EXIT_FAILURE, "\n unable to launch on core id %d!!", wlcore);
         printf("\n Initialized lcore %d with fifo Index %d", wlcore, argPort);
