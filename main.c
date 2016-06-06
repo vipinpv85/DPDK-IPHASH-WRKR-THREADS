@@ -74,7 +74,7 @@ uint16_t ipv4_hash_result [1024] = {0};
 uint8_t rxPorts = 1; /*recv interface worker threads with hashing*/
 uint8_t fifoWrk = 2; /*fifo worker threads pkt processing*/
 uint8_t prsOpt  = 0; /* 0 - all, 1 - v4, 2 - v6*/
-
+uint8_t totalPorts = 0;
 /*SW ring which acts as FIFO for worker threads*/
 struct rte_ring *srb [MAX_FIFO];
 
@@ -249,7 +249,7 @@ lcore_fifoTransmit (void *arg)
      */
 
     /* create the mbuff pool for new pkt header*/
-    sprintf(mempoolName, "mbufhdrpool");
+    sprintf(mempoolName, "mbufhdrpool-%d", fifoIndex);
     mbuff_Hdrpool = rte_mempool_create(mempoolName, NUM_MBUFS,
                                     MBUF_CACHE_SIZE, 0,
                                     RTE_MBUF_DEFAULT_BUF_SIZE, 
@@ -274,7 +274,6 @@ lcore_fifoTransmit (void *arg)
       //ret = rte_ring_sc_dequeue_bulk(srb[fifoIndex], (void *)&ptr, 8);
       ret = rte_ring_dequeue_burst(srb[fifoIndex], (void *)&ptr, 8);
       if (likely(ret)) {
-        prtPktStats[port + rxPorts].queue_fet[fifoIndex] += ret;
  
         /*fetch tx port from userdata64 of mbuf*/
         for (i =0 ; i < ret; i ++)
@@ -282,47 +281,47 @@ lcore_fifoTransmit (void *arg)
           m = ptr[i];
           txport = (ptr[i]->udata64 & 0xff00)>>8;
 
-#if 1 /**/
+#if 1
         /* Remove the Ethernet header from the input packet */
         ipHdr = (struct ipv4_hdr *)rte_pktmbuf_adj(m, sizeof(struct ether_hdr));
         RTE_MBUF_ASSERT(ipHdr != NULL);
 
         /*alloc new mbuf for the header*/
-        for (i = 0; i < txport; i++) 
+        for (j = 0; j < (totalPorts - rxPorts); j++) 
         {
-          hdr[i] = rte_pktmbuf_alloc(mbuff_Hdrpool);
-	  if (unlikely(hdr[i] == NULL)) {
-	    /*ToDo: update stats for (txportCount - i)*/
-	    return -2;
+          hdr[j] = rte_pktmbuf_alloc(mbuff_Hdrpool);
+	  if (unlikely(hdr[j] == NULL)) {
+            prtPktStats[(rxPorts + j)].dropped += ((totalPorts - rxPorts) - j);
+	    break;
 	  }
+          prtPktStats[(rxPorts + j)].queue_fet[fifoIndex] += 1;
           
           /* prepend new header */
-	  hdr[i]->next = m;
+	  hdr[j]->next = m;
 	
 	  /* update header's fields */
-	  hdr[i]->pkt_len = (uint16_t)(hdr[i]->data_len + m->pkt_len);
-	  hdr[i]->nb_segs = (uint8_t)(m->nb_segs + 1);
+	  hdr[j]->pkt_len = (uint16_t)(hdr[j]->data_len + m->pkt_len);
+	  hdr[j]->nb_segs = (uint8_t)(m->nb_segs + 1);
 	
 	  /* copy metadata from source packet */
-	  hdr[i]->port           = m->port;
-          hdr[i]->vlan_tci       = m->vlan_tci;
-          hdr[i]->vlan_tci_outer = m->vlan_tci_outer;
-          hdr[i]->hash           = m->hash;
-          hdr[i]->ol_flags       = m->ol_flags;
+	  hdr[j]->port           = m->port;
+          hdr[j]->vlan_tci       = m->vlan_tci;
+          hdr[j]->vlan_tci_outer = m->vlan_tci_outer;
+          hdr[j]->hash           = m->hash;
+          hdr[j]->ol_flags       = m->ol_flags;
 
-          rte_mbuf_sanity_check(hdr[i], 1);
+          rte_mbuf_sanity_check(hdr[j], 1);
 
-          /*add custom header ethernet + ip in hdr[i]*/
-          ethHdr = rte_pktmbuf_mtod(hdr[i], struct ether_hdr *);
-          rte_memcpy((void *)ethHdr, (void *)pktTx[i + rxPorts], 14);
+          /*add custom header ethernet + ip in hdr[j]*/
+          ethHdr = rte_pktmbuf_mtod(hdr[j], struct ether_hdr *);
+          rte_memcpy((void *)ethHdr, (void *)pktTx[j + rxPorts], 14);
 
           /*transmit pkts to tx ports*/ 
-          nb_tx = rte_eth_tx_burst(rxPorts + i, 0, &hdr[i], 1);
+          nb_tx = rte_eth_tx_burst((rxPorts + j), 0, &hdr[j], 1);
           if (nb_tx != 1) {
-            prtPktStats[port + rxPorts].queue_drp[fifoIndex] += 1;
-            rte_pktmbuf_free(hdr[i]);
+            prtPktStats[rxPorts + j].queue_drp[fifoIndex] += 1;
+            rte_pktmbuf_free(hdr[j]);
           }
-
         }
 
         /*since we use approach 2, I think we should free the original packet*/
@@ -359,7 +358,7 @@ lcore_testCuckoohash(void *arg)
 
     uint8_t lkpPort = 0, lkpFifo = 0;
 
-    uint8_t totalPorts = rte_eth_dev_count();
+    totalPorts = rte_eth_dev_count();
     int32_t ret = 0, i = 0, j = 0;
     uint32_t socketId = rte_lcore_to_socket_id(rte_lcore_id());
 
@@ -772,7 +771,7 @@ parse_args(int argc, char **argv)
 		return -1;
           }
 
-          fifoWrk = (uint8_t)(pm & 0xfe);
+          fifoWrk = (uint8_t)((pm & 0xfe) == 0)?fifoWrk:(pm & 0xfe);
           break;
 
         case 'a':
