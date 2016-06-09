@@ -1,0 +1,401 @@
+
+/*
+ *The MIT License (MIT)
+ *Copyright (c) 2016 Vipin Varghese
+ *
+ *Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation 
+ *files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, 
+ *modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the 
+ *Software is furnished to do so, subject to the following conditions:
+ *
+ *The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ *
+ *THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE 
+ *WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR 
+ *COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ *ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+#include "config.h"
+#include "node.h"
+#include "stats.h"
+
+#define RX_RING_SIZE 128
+#define TX_RING_SIZE 512
+
+#define NUM_MBUFS ((8192 * 2) -1)
+#define MBUF_CACHE_SIZE (RTE_MBUF_DEFAULT_DATAROOM + sizeof(struct rte_mbuf) + RTE_PKTMBUF_HEADROOM)
+#define BURST_SIZE 32
+
+struct rte_mempool *mbuff_pool_rx = NULL;
+
+const char pkt[1600] = {0x00, 0x0c, 0x29, 0xda, 0xd1, 0xde, 0x00, 0x0c, 0x29, 0xe3, 0xc6, 0x4d, 0x08, 0x00, 0x45, 0x00, 0x00, 0x7c, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11, 0x67, 0xbb, 0xc0, 0xa8, 0x28, 0xb3, 0xc0, 0xa8, 0x28, 0xb2, 0x08, 0x68, 0x08, 0x68, 0x00, 0x68, 0xbf, 0x64, 0x32, 0xff, 0x00, 0x58, 0x00, 0x00, 0x00, 0x01, 0x28, 0xdb, 0x00, 0x00, 0x45, 0x00, 0x00, 0x54, 0x00, 0x00, 0x40, 0x00, 0x40, 0x01, 0x5e, 0xa5, 0xca, 0x0b, 0x28, 0x9e, 0xc0, 0xa8, 0x28, 0xb2, 0x08, 0x00, 0xbe, 0xe7, 0x00, 0x00, 0x28, 0x7b, 0x04, 0x11, 0x20, 0x4b, 0xf4, 0x3d, 0x0d, 0x00, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37};
+
+static const struct rte_eth_conf port_conf_default = {
+        .rxmode = {
+                .split_hdr_size = 0,
+                .header_split   = 0,    /**< Header Split disabled. */
+                .hw_ip_checksum = 0,    /**< IP checksum offload disabled. */
+                .hw_vlan_filter = 0,    /**< VLAN filtering enabled. */
+                .hw_vlan_strip  = 0,    /**< VLAN strip enabled. */
+                .hw_vlan_extend = 0,    /**< Extended VLAN disabled. */
+                .jumbo_frame    = 0,    /**< Jumbo Frame Support disabled. */
+                .hw_strip_crc   = 0,    /**< CRC stripping by hardware disabled. */
+        },
+        .txmode = {
+                .mq_mode = ETH_MQ_TX_NONE,
+        },
+};
+
+/* basicfwd.c: Basic DPDK skeleton forwarding example. */
+
+/*
+ * Initializes a given port using global settings and with the RX buffers
+ * coming from the mbuf_pool passed as a parameter.
+ */
+static inline int
+port_init(uint8_t port)
+{
+    char mempoolName[32] = {0};
+    struct rte_mempool *mbuff_pool = NULL;
+
+	struct rte_eth_conf port_conf = port_conf_default;
+	int retval;
+
+        struct rte_eth_link link;
+        struct rte_eth_dev_info devInfo;
+
+        printf("\n\n INFO: setting up port %d\n", port);
+
+	if (port >= rte_eth_dev_count())
+		return -1;
+
+        rte_eth_dev_info_get(port, &devInfo);
+
+        /* allocate mempool TX and RX seperate */
+
+        /* create mempool for TX */
+
+#if 1
+        /* create mempool for RX */
+        sprintf(mempoolName, "mbufpool-%d-%d-0-rx", devInfo.pci_dev->addr.function, port);
+        mbuff_pool = rte_mempool_create(
+                    mempoolName, NUM_MBUFS,
+                    MBUF_CACHE_SIZE, 0,
+                    RTE_MBUF_DEFAULT_BUF_SIZE, 
+                    rte_pktmbuf_pool_init, NULL,
+                    rte_pktmbuf_init, NULL,
+                    0/*SOCKET_ID_ANY*/,
+                    MEMPOOL_F_SP_PUT | MEMPOOL_F_SC_GET);
+        if (unlikely(mbuff_pool == NULL)) {
+            rte_panic("\n ERROR: failed to get mem-pool for rx on node 0 intf %d\n", port);
+            return -1;
+        }
+        printf("\n INFO: created rx & tx mempool!!");
+#endif
+
+	/* Configure the Ethernet device. */
+	retval = rte_eth_dev_configure(port, 1, 1, &port_conf);
+	if (retval != 0)
+		return retval;
+        printf("\n INFO: configured port with 1 rx and 1 tx queues!!");
+
+	/* Allocate and set up 1 RX queue per Ethernet port. */
+	retval = rte_eth_rx_queue_setup(port, 0, RX_RING_SIZE, 
+                                        rte_eth_dev_socket_id(port), 
+                                        NULL, mbuff_pool);
+	if (retval < 0) {
+            printf("\n DEBUG: %d!!", retval);
+            return retval;
+        }
+        printf("\n INFO: rx queue 0 setup!!");
+
+	/* Allocate and set up 1 TX queue per Ethernet port. */
+	retval = rte_eth_tx_queue_setup(port, 0, TX_RING_SIZE,
+				rte_eth_dev_socket_id(port), NULL);
+	if (retval < 0) {
+            printf("\n DEBUG: %d!!", retval);
+	    return retval;
+        }
+
+        printf("\n INFO: tx queue 1 setup!!");
+
+	/* Enable RX in promiscuous mode for the Ethernet device. */
+	rte_eth_promiscuous_enable(port);
+
+	/* Start the Ethernet port. */
+	retval = rte_eth_dev_start(port);
+	if (retval < 0)
+		return retval;
+
+        rte_delay_ms(6000);
+
+        rte_eth_link_get(port, &link);
+        {
+            printf(" port:%u; duplex:%s, status:%s",
+                       (unsigned) port,
+                       (link.link_duplex == ETH_LINK_FULL_DUPLEX)?"Full":"half",
+                       (link.link_status == 1)?"up":"down");
+        }
+
+	/* Display the port MAC address. */
+	struct ether_addr addr;
+	rte_eth_macaddr_get(port, &addr);
+	printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8
+			   " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
+			(unsigned)port,
+			addr.addr_bytes[0], addr.addr_bytes[1],
+			addr.addr_bytes[2], addr.addr_bytes[3],
+			addr.addr_bytes[4], addr.addr_bytes[5]);
+
+
+	return 0;
+}
+
+/*
+ * The lcore main. This is the main thread that does the work, reading from
+ * an input port and writing to an output port.
+ */
+static int
+lcore_testCuckoohash(void *arg)
+{
+    uint8_t port = *((uint8_t *) arg);
+    printf("\n INFO: port in use: %d", port);
+
+    char mempoolName[25];
+    struct rte_mempool *mbuff_pool = NULL;
+    struct rte_mbuf *bufs[BURST_SIZE];
+
+    sprintf(mempoolName, "mbufpool-%d-0-tx", (int)port);
+    mbuff_pool = rte_mempool_create(
+                    mempoolName, NUM_MBUFS,
+                    MBUF_CACHE_SIZE, 0,
+                    RTE_MBUF_DEFAULT_BUF_SIZE,
+                    rte_pktmbuf_pool_init, NULL,
+                    rte_pktmbuf_init, NULL,
+                    0/*SOCKET_ID_ANY*/,
+                    MEMPOOL_F_SP_PUT | MEMPOOL_F_SC_GET);
+    if (unlikely(mbuff_pool == NULL))
+            rte_panic("\n ERROR: failed to get mem-pool for rx on node 0 intf %d\n", port);
+
+    printf("\n INFO: created tx mempool!!");
+
+     if (rte_eth_dev_socket_id(port) > 0 &&
+            rte_eth_dev_socket_id(port) !=
+            (int)rte_socket_id())
+            printf("WARNING, port %u is on remote NUMA node to "
+                        "polling thread.\n\tPerformance will "
+                        "not be optimal.\n", port);
+
+     printf("\nCore %u Recieving packets. [Ctrl+C to quit]\n",
+                        rte_lcore_id());
+
+    while (1) {
+      const uint16_t nb_rx = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
+
+      if (unlikely(nb_rx == 0)) {
+        //printf("\n pkts rcv %d", nb_rx);
+        continue;
+      }
+
+      /* fetch details - process on IP to form HASH lkp */
+
+      /* Send burst of TX packets, to second port of pair. */
+      const uint16_t nb_tx = rte_eth_tx_burst(port, 0, bufs, nb_rx);
+
+      /* Free any unsent packets. */
+      if (unlikely(nb_tx < nb_rx)) {
+        uint16_t buf;
+        for (buf = nb_tx; buf < nb_rx; buf++)
+          rte_pktmbuf_free(bufs[buf]);
+      }
+    }  
+
+    return 0;
+}
+
+static int display (void)
+{
+    do {
+      rte_delay_ms(1000);
+      rte_timer_manage();
+    }while(1);
+
+    return 0;
+}
+
+static int
+lcore_gen(void *arg)
+{
+    uint8_t port = *((uint8_t *)arg);
+
+    int32_t i = 0, ret = 0;
+    char mempoolName[25];
+
+    struct rte_mempool *mbuff_pool = NULL;
+    struct rte_mbuf *ptr[8], *m = NULL;
+    struct ether_hdr *eth_hdr = NULL;
+
+    
+    sprintf(mempoolName, "mbufpool-%d-0-tx", port);
+    mbuff_pool = rte_mempool_create(
+                mempoolName, NUM_MBUFS,
+                MBUF_CACHE_SIZE, 0,
+                RTE_MBUF_DEFAULT_BUF_SIZE, 
+                rte_pktmbuf_pool_init, NULL,
+                rte_pktmbuf_init, NULL,
+                0/*SOCKET_ID_ANY*/,
+                MEMPOOL_F_SP_PUT | MEMPOOL_F_SC_GET);
+    if (unlikely(mbuff_pool == NULL)) {
+        rte_panic("\n ERROR: failed to get mem-pool for rx on node 0 intf %d\n", port);
+        return -1;
+    }
+    printf("\n INFO: created tx mempool!!");
+    
+    /*
+     * Check that the port is on the same NUMA node as the polling thread
+     * for best performance.
+     */
+    if (rte_eth_dev_socket_id(port) > 0 &&
+        rte_eth_dev_socket_id(port) != 
+        (int)rte_socket_id())
+        printf("WARNING, port %u is on remote NUMA node to "
+    		"polling thread.\n\tPerformance will "
+    		"not be optimal.\n", port);
+    
+    printf("\nCore %u forwarding packets. [Ctrl+C to quit]\n",
+    		rte_lcore_id());
+    
+    /* Run until the application is quit or killed. */
+    while (1) {
+      for(i = 0; i < 8; i++ )
+      {
+          if (unlikely((ptr[i] = rte_pktmbuf_alloc(mbuff_pool)) == NULL)) {
+              printf("\n -------------- ");
+              continue;
+          }
+    
+          ptr[i]->data_len = ptr[i]->pkt_len = 120;
+          eth_hdr = rte_pktmbuf_mtod(ptr[i], struct ether_hdr *);
+    
+          /* memcpy pkt content */
+          rte_memcpy(((char *)eth_hdr), pkt,ptr[i]->pkt_len);
+      }
+      //rte_pktmbuf_dump (stdout, ptr[0], 64);
+    
+      ret = rte_eth_tx_burst(port, 0, (struct rte_mbuf **)&ptr, 8);
+      if (unlikely(8 != ret )) {
+          for (i = ret; i < 8; i++)
+          {
+            m = ptr[i];
+            rte_pktmbuf_free(m);
+          }
+      }
+    }
+
+    return 1;
+}
+
+/*
+ * The main function, which does initialization and calls the per-lcore
+ * functions.
+ */
+int
+main(int argc, char *argv[])
+{
+    unsigned nb_ports, workers, wlcore;
+    uint8_t portid = 0, argPort = 0;
+
+    /* Initialize the Environment Abstraction Layer (EAL). */
+    int ret = rte_eal_init(argc, argv);
+    if (ret < 0)
+    	rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
+    
+    argc -= ret;
+    argv += ret;
+   
+    /* Register Signal */
+    signal(SIGUSR1, sigExtraStats);
+    signal(SIGUSR2, sigDetails);
+
+    /* check for 1 TX and n FWD ports */
+ 
+    /* Check that there is an even number of ports to send/receive on. */
+    nb_ports = rte_eth_dev_count();
+    if ((nb_ports == 0) || (nb_ports%2 == 1))
+    	rte_exit(EXIT_FAILURE, "Error: In sufficent ports available\n");
+   
+    if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
+      /* create mempool for RX */
+      mbuff_pool_rx = rte_mempool_create(
+                  "mbufpool-rx", NUM_MBUFS,
+                  MBUF_CACHE_SIZE, 0,
+                  RTE_MBUF_DEFAULT_BUF_SIZE, 
+                  rte_pktmbuf_pool_init, NULL,
+                  rte_pktmbuf_init, NULL,
+                  0/*SOCKET_ID_ANY*/,
+                  MEMPOOL_F_SP_PUT | MEMPOOL_F_SC_GET);
+      if (unlikely(mbuff_pool_rx == NULL)) 
+          rte_exit(EXIT_FAILURE,"failed to get mem-pool for rx on node 0 ");
+
+      printf("\n INFO: created rx mempool!!");
+    }
+    else {
+      mbuff_pool_rx =  rte_mempool_lookup("mbufpool-rx");
+      if (unlikely(mbuff_pool_rx == NULL))
+        rte_exit(EXIT_FAILURE,"Unable to find the mempool created by primary ");
+      printf("\n INFO: found rx mempool!!"); 
+    }
+
+    workers = RTE_MIN (rte_lcore_count(), (nb_ports - 1));
+    printf ("\n Total NIC on which function starts %d\n", workers);
+
+    /* Initialize TX port - dpdk port odd ports - 1,3,5,7..... */
+    if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
+      wlcore = rte_get_next_lcore(-1, 1, 0);
+      for (portid = 0; portid <= workers; portid++) {
+        if ((portid & 0x01) != 0) {
+          argPort = portid;
+          if (port_init(argPort) != 0)
+            rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8 "\n", argPort);
+          printf("\n Initialized port %d", argPort);
+
+          ret = rte_eal_remote_launch(lcore_gen, (void *) &argPort, wlcore);
+          if (ret != 0)
+            rte_exit(EXIT_FAILURE, "\n unable to launch on core id %d!!", wlcore);
+          printf("\n Initialized lcore %d", wlcore);
+
+          wlcore = rte_get_next_lcore(wlcore, 1, 0);
+        }
+      }
+    } else {
+      wlcore = rte_get_next_lcore(-1, 1, 0);
+      for (portid = 0; portid <= workers; portid++) {
+        if ((portid & 0x01) == 0) {
+          argPort = portid;
+          if (port_init(argPort) != 0)
+            rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8 "\n", argPort);
+          printf("\n Initialized port %d", argPort);
+
+          ret = rte_eal_remote_launch(lcore_testCuckoohash, (void *) &portid, wlcore);
+          if (ret != 0)
+            rte_exit(EXIT_FAILURE, "\n unable to launch on core id 1!!");
+          printf("\n Initialized lcore %d", wlcore);
+
+          wlcore = rte_get_next_lcore(wlcore, 1, 0);
+        }
+      }
+    }
+
+    if (ret == 0) {
+      rte_delay_ms(4000);
+      STATS_CLR_SCREEN;
+
+      set_stats_timer();
+      show_static_display();
+     
+      while (1) display();
+    }
+
+    return 0;
+}
